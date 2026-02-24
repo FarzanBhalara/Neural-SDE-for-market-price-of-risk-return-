@@ -28,6 +28,7 @@ optimizer = optim.Adam(
 dt = 1.0
 
 epochs = 1000
+loss_history = []
 
 for epoch in range(epochs):
     optimizer.zero_grad()
@@ -51,11 +52,25 @@ for epoch in range(epochs):
 
     loss.backward()
     optimizer.step()
+    loss_history.append(loss.item())
 
     if epoch % 20 ==0:
       print(f"Epoch {epoch}, Loss = {loss.item():.6f}")
 
 print("Training complete.")
+
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(8,5))
+plt.plot(loss_history)
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.title("Training Loss vs Epoch")
+plt.grid(True)
+plt.savefig("outputs/loss_plot.png", dpi=300)
+plt.close()
+
+print("Loss plot saved to outputs/loss_plot.png")
 
 
 
