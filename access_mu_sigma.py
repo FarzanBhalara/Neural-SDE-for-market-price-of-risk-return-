@@ -1,11 +1,10 @@
 import numpy as np
 
-data = np.load("outputs/step3_mu_sigma.npz")
+
+data = np.load("outputs/step6_market_params_panel.npz", allow_pickle=True)
 
 print(data.files)
-
-mu = data["mu"]
-sigma = data["sigma"]
-
-print(mu[:10])
-print(sigma[:10])
+print("mu_excess shape =", data["mu_excess"].shape)
+print("sigma shape =", data["sigma"].shape)
+print("beta_market shape =", data["beta_market"].shape)
+print("lambda_t[:10] =", data["lambda_t"][:10])
