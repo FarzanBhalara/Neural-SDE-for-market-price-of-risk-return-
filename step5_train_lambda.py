@@ -1,5 +1,7 @@
 import os
 
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -18,25 +20,36 @@ METRICS_CSV = "outputs/step5_lambda_metrics.csv"
 LAMBDA_PLOT = "outputs/step5_lambda_plot.png"
 
 TARGET_HORIZON = 60
-EPOCHS = 250
-HIDDEN_DIM = 24
-LR = 2e-4
+EPOCHS = 500
+HIDDEN_DIM = 64
+LR = 1e-3
 WEIGHT_DECAY = 1e-4
 GRAD_CLIP = 1.0
-PATIENCE = 20
+PATIENCE = 40
 SEED = 42
-SHRINK_WEIGHT = 0.10
-SMOOTH_WEIGHT = 0.25
+
+MAX_ABS_LAMBDA = 0.035
+SHRINK_WEIGHT = 0.05
+SMOOTH_WEIGHT = 0.01
+LAMBDA_TARGET_WEIGHT = 2.0
+CROSS_SECTION_WEIGHT = 0.0
+LAMBDA_SMOOTH_HALFLIFE = 10
+LAMBDA_CLIP_ZSCORE = 3.0
+
 EPS = 1e-6
-MAX_ABS_LAMBDA = 0.25
-LAMBDA_TARGET_WEIGHT = 1.0
-CROSS_SECTION_WEIGHT = 0.25
+
 
 def plot_lambda_series(series_df):
     fig, ax = plt.subplots(figsize=(12, 4.5))
     ax.plot(series_df["date"], series_df["lambda_pred"], linewidth=1.3)
     if "lambda_target" in series_df.columns:
-        ax.plot(series_df["date"], series_df["lambda_target"], linewidth=1.0, alpha=0.7, label="implied lambda target")
+        ax.plot(
+            series_df["date"],
+            series_df["lambda_target"],
+            linewidth=1.0,
+            alpha=0.7,
+            label="implied lambda target",
+        )
         ax.legend()
     ax.axhline(0.0, color="grey", linestyle="--", linewidth=0.9)
     ax.set_title("Estimated Common Lambda")
@@ -74,7 +87,12 @@ def main():
         "target_horizon": TARGET_HORIZON,
         "max_abs_lambda": MAX_ABS_LAMBDA,
         "lambda_target_weight": LAMBDA_TARGET_WEIGHT,
+        "market_lambda_weight": 2.0,
+        "market_lambda_halflife": 60,
+        "market_lambda_min_periods": 30,
         "cross_section_weight": CROSS_SECTION_WEIGHT,
+        "lambda_smooth_halflife": LAMBDA_SMOOTH_HALFLIFE,
+        "lambda_clip_zscore": LAMBDA_CLIP_ZSCORE,
         "min_assets": 10,
     }
 
@@ -117,19 +135,26 @@ def main():
     target_panel = panel[f"future_excess_mean_{TARGET_HORIZON}d"]
     valid_rows = summary["valid_rows"]
     metrics_rows = []
-    for split_name, date_mask_key in {
+    split_to_flag = {
+        "train": "train_flag",
+        "val": "val_flag",
+        "test": "test_flag",
+    }
+    split_to_mask = {
         "train": "train_date_mask",
         "val": "val_date_mask",
         "test": "test_date_mask",
-    }.items():
+    }
+    for split_name, date_mask_key in split_to_mask.items():
         split_mask = valid_rows & panel[date_mask_key].astype(bool)[:, None]
-        metrics = evaluate_lambda_panel(pred["lambda_t"], beta, target_panel, split_mask)
+        metrics = evaluate_lambda_panel(pred["lambda_t"], sigma, target_panel, split_mask)
+        flag_col = split_to_flag[split_name]
         metrics_rows.append(
             {
                 "split": split_name,
                 **metrics,
-                "lambda_mean": float(series_df.loc[series_df[f"{split_name}_flag" if split_name != 'train' else 'train_flag'], "lambda_pred"].mean()),
-                "lambda_std": float(series_df.loc[series_df[f"{split_name}_flag" if split_name != 'train' else 'train_flag'], "lambda_pred"].std(ddof=0)),
+                "lambda_mean": float(series_df.loc[series_df[flag_col], "lambda_pred"].mean()),
+                "lambda_std": float(series_df.loc[series_df[flag_col], "lambda_pred"].std(ddof=0)),
             }
         )
     metrics_df = pd.DataFrame(metrics_rows)

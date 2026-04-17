@@ -1,5 +1,7 @@
 import os
 
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -63,7 +65,7 @@ def main():
 
     dates = pd.to_datetime(panel["dates"])
     lambda_series = lambda_df.set_index("date").reindex(dates)["lambda_pred"].to_numpy(dtype=np.float32)
-    mu_excess = (beta * lambda_series[:, None]).astype(np.float32)
+    mu_excess = (sigma * lambda_series[:, None]).astype(np.float32)
     mu_total = (panel["risk_free"][:, None] + mu_excess).astype(np.float32)
     final_valid_mask = (
         panel[f"valid_lambda_{TARGET_HORIZON}d_mask"].astype(bool)

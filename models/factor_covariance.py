@@ -12,7 +12,12 @@ def build_market_factor_panel(panel, target_horizon=20):
         columns=["MARKET"],
     )
     next_market = market.shift(-1)
-    sigma_target = build_forward_vol_targets(market, horizons=(target_horizon,))[f"sigma_target_{target_horizon}d"]
+    sigma_targets = build_forward_vol_targets(
+        market,
+        horizons=tuple(sorted({5, int(target_horizon)})),
+    )
+    sigma_target_5d = sigma_targets["sigma_target_5d"]
+    sigma_target_20d = sigma_targets[f"sigma_target_{int(target_horizon)}d"]
 
     valid_return = market.notna()
     lookback = pd.DataFrame(panel["lookback_60_mask"].astype(bool), index=dates, columns=panel["asset_ids"]).any(axis=1)
@@ -37,7 +42,8 @@ def build_market_factor_panel(panel, target_horizon=20):
         "lookback_60_mask": valid_sigma.copy(),
         "forward_20d_mask": valid_sigma.copy(),
         "valid_sigma_mask": valid_sigma.copy(),
-        "sigma_target_20d": sigma_target.to_numpy(dtype=np.float32),
+        "sigma_target_5d": sigma_target_5d.to_numpy(dtype=np.float32),
+        "sigma_target_20d": sigma_target_20d.to_numpy(dtype=np.float32),
         "train_date_mask": panel["train_date_mask"].astype(bool),
         "val_date_mask": panel["val_date_mask"].astype(bool),
         "test_date_mask": panel["test_date_mask"].astype(bool),

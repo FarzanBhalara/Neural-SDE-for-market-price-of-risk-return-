@@ -8,33 +8,40 @@ from models.exposures import build_beta_mask, clip_beta, compute_rolling_market_
 
 PANEL_FILE = "outputs/panel_step1.npz"
 EXPOSURES_FILE = "outputs/step4_exposures.npz"
+STEP2_BETA_FILE = "outputs/step2_beta_market_tmp.npz"
 
 BETA_WINDOW = 60
-BETA_HALFLIFE = 15
+BETA_HALFLIFE = 25
 BETA_SHRINK_TARGET = 1.0
-BETA_SHRINK_WEIGHT = 0.05
+BETA_SHRINK_WEIGHT = 0.15
 BETA_CLIP = 5.0
 
 
 def main():
     os.makedirs("outputs", exist_ok=True)
     panel = load_panel_artifact(PANEL_FILE)
-
-    beta_raw, beta_valid = compute_rolling_market_beta(
-        excess_return=panel["excess_return"],
-        market_return=panel["market_excess_return"],
-        valid_mask=panel["lookback_60_mask"].astype(bool),
-        window=BETA_WINDOW,
-    )
-    beta_smooth = smooth_market_beta(
-        beta=beta_raw,
-        valid_mask=beta_valid,
-        halflife=BETA_HALFLIFE,
-        shrink_target=BETA_SHRINK_TARGET,
-        shrink_weight=BETA_SHRINK_WEIGHT,
-    )
-    beta_market = clip_beta(beta_smooth, lower=-BETA_CLIP, upper=BETA_CLIP)
-    beta_valid_mask = build_beta_mask(beta_market, beta_valid)
+    if os.path.exists(STEP2_BETA_FILE):
+        beta_artifact = np.load(STEP2_BETA_FILE, allow_pickle=True)
+        beta_market = beta_artifact["beta_market"].astype(np.float32)
+        beta_valid_mask = beta_artifact["beta_valid_mask"].astype(bool)
+        beta_source = STEP2_BETA_FILE
+    else:
+        beta_raw, beta_valid = compute_rolling_market_beta(
+            excess_return=panel["excess_return"],
+            market_return=panel["market_excess_return"],
+            valid_mask=panel["lookback_60_mask"].astype(bool),
+            window=BETA_WINDOW,
+        )
+        beta_smooth = smooth_market_beta(
+            beta=beta_raw,
+            valid_mask=beta_valid,
+            halflife=BETA_HALFLIFE,
+            shrink_target=BETA_SHRINK_TARGET,
+            shrink_weight=BETA_SHRINK_WEIGHT,
+        )
+        beta_market = clip_beta(beta_smooth, lower=-BETA_CLIP, upper=BETA_CLIP)
+        beta_valid_mask = build_beta_mask(beta_market, beta_valid)
+        beta_source = "recomputed"
 
     np.savez(
         EXPOSURES_FILE,
@@ -51,6 +58,7 @@ def main():
 
     valid_beta = beta_market[beta_valid_mask]
     print("Step 4 complete: rolling market betas fit.")
+    print(f"Beta source: {beta_source}")
     print(f"Saved exposures to {EXPOSURES_FILE}")
     print(f"Valid beta rows: {int(beta_valid_mask.sum())}")
     print(f"Beta mean: {float(np.mean(valid_beta)):.4f}")

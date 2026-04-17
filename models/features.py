@@ -224,7 +224,9 @@ def build_lambda_date_features(panel, sigma_panel, beta_panel, factor_sigma=None
     market_df["mkt_cumret_60"] = market_series.rolling(60, min_periods=60).sum()
 
     date_df = pd.concat([market_df, cross_df], axis=1)
-    date_df["sigma_mean"] = sigma_df.mean(axis=1)
+
+    sigma_mean_series = sigma_df.mean(axis=1)
+    date_df["sigma_mean"] = sigma_mean_series
     date_df["sigma_median"] = sigma_df.median(axis=1)
     date_df["sigma_dispersion"] = sigma_df.std(axis=1, ddof=0)
     date_df["beta_mean"] = beta_df.mean(axis=1)
@@ -232,6 +234,49 @@ def build_lambda_date_features(panel, sigma_panel, beta_panel, factor_sigma=None
     date_df["beta_abs_mean"] = beta_df.abs().mean(axis=1)
     date_df["ret_positive_frac"] = excess_df.gt(0).mean(axis=1)
     date_df["ret_dispersion"] = excess_df.std(axis=1, ddof=0)
+
+    # ------------------------------------------------------------------
+    # Regime-aware and return-predictive features
+    # ------------------------------------------------------------------
+
+    # Vol-regime ratio: short-term vs long-term sigma level.
+    # Spikes (ratio >> 1) historically accompany higher risk premia.
+    sigma_5m = sigma_mean_series.rolling(5, min_periods=3).mean()
+    sigma_60m = sigma_mean_series.rolling(60, min_periods=20).mean().clip(lower=1e-6)
+    date_df["sigma_vol_ratio_5_60"] = sigma_5m / sigma_60m
+
+    # Normalised sigma level: z-score relative to its own 252d history.
+    # Captures whether market-wide vol is abnormally high or low.
+    sigma_252m = sigma_mean_series.rolling(252, min_periods=60).mean()
+    sigma_252s = sigma_mean_series.rolling(252, min_periods=60).std(ddof=0).clip(lower=1e-6)
+    date_df["sigma_level_zscore"] = (sigma_mean_series - sigma_252m) / sigma_252s
+
+    # Market drawdown from rolling 252-day peak.
+    # Large drawdowns coincide with compressed or negative λ regimes.
+    mkt_cum = (1.0 + market_series).cumprod()
+    rolling_peak = mkt_cum.rolling(252, min_periods=60).max().clip(lower=1e-9)
+    date_df["mkt_drawdown"] = (mkt_cum / rolling_peak - 1.0).clip(lower=-1.0, upper=0.0)
+
+    # Short and long market momentum (complement the 20/60d already present).
+    date_df["mkt_cumret_5"] = market_series.rolling(5, min_periods=5).sum()
+    date_df["mkt_cumret_120"] = market_series.rolling(120, min_periods=60).sum()
+
+    # 20-day rolling mean of cross-sectional return dispersion.
+    # High dispersion → higher investor uncertainty → higher implied λ.
+    cs_disp = excess_df.std(axis=1)
+    date_df["cs_ret_dispersion_20"] = cs_disp.rolling(20, min_periods=10).mean()
+
+    # Risk-premium proxy: market drift minus half-variance (Kelly drift).
+    # A positive value signals favourable risk-premium conditions.
+    mkt_mean_60 = market_series.rolling(60, min_periods=30).mean()
+    mkt_var_60 = market_series.pow(2).rolling(60, min_periods=30).mean()
+    date_df["risk_prem_proxy"] = mkt_mean_60 - 0.5 * mkt_var_60
+
+    # Dispersion regime: ratio of 5d to 20d cross-sectional dispersion.
+    cs_disp_5 = cs_disp.rolling(5, min_periods=3).mean()
+    cs_disp_20 = cs_disp.rolling(20, min_periods=10).mean().clip(lower=1e-6)
+    date_df["cs_disp_ratio_5_20"] = cs_disp_5 / cs_disp_20
+
     if factor_sigma is not None:
         factor_sigma = pd.Series(np.asarray(factor_sigma, dtype=np.float32), index=excess_df.index)
         date_df["factor_sigma"] = factor_sigma

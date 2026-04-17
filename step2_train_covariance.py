@@ -20,11 +20,12 @@ from models.volatility_pipeline import (
 PANEL_FILE = "outputs/panel_step1.npz"
 CHECKPOINT_FILE = "outputs/step2_covariance_model.pt"
 PREDICTIONS_NPZ = "outputs/step2_covariance_predictions.npz"
+BETA_CACHE_NPZ = "outputs/step2_beta_market_tmp.npz"
 
 BETA_WINDOW = 60
-BETA_HALFLIFE = 15
+BETA_HALFLIFE = 25
 BETA_SHRINK_TARGET = 1.0
-BETA_SHRINK_WEIGHT = 0.05
+BETA_SHRINK_WEIGHT = 0.15
 BETA_CLIP = 5.0
 TARGET_HORIZON = 20
 
@@ -45,6 +46,8 @@ FACTOR_CONFIG = {
     "high_vol_clip": 6.0,
     "eps": 1e-6,
     "lookback": 60,
+    "target_horizon": TARGET_HORIZON,
+    "nll_target_key": "sigma_target_5d",
     "predict_delta_log_var": True,
     "use_baseline_feature": True,
 }
@@ -66,6 +69,8 @@ IDIO_CONFIG = {
     "high_vol_clip": 5.0,
     "eps": 1e-6,
     "lookback": 60,
+    "target_horizon": TARGET_HORIZON,
+    "nll_target_key": "sigma_target_5d",
     "predict_delta_log_var": True,
     "use_baseline_feature": True,
 }
@@ -217,6 +222,18 @@ def main():
     )
     beta_market = clip_beta(beta_smooth, lower=-BETA_CLIP, upper=BETA_CLIP)
     beta_valid_mask = build_beta_mask(beta_market, beta_valid)
+    np.savez(
+        BETA_CACHE_NPZ,
+        dates=panel["dates"],
+        asset_ids=panel["asset_ids"],
+        beta_market=beta_market.astype(np.float32),
+        beta_valid_mask=beta_valid_mask.astype(bool),
+        beta_window=np.asarray([BETA_WINDOW], dtype=np.int32),
+        beta_halflife=np.asarray([BETA_HALFLIFE], dtype=np.int32),
+        beta_shrink_target=np.asarray([BETA_SHRINK_TARGET], dtype=np.float32),
+        beta_shrink_weight=np.asarray([BETA_SHRINK_WEIGHT], dtype=np.float32),
+        beta_clip=np.asarray([BETA_CLIP], dtype=np.float32),
+    )
 
     factor_panel = build_market_factor_panel(panel, target_horizon=TARGET_HORIZON)
     factor_ewma = ewma_panel_volatility(factor_panel["excess_return"], decay=0.94)
@@ -297,9 +314,9 @@ def main():
         target_sigma=panel["sigma_target_20d"],
         valid_mask=marginal_val_mask,
         high_vol_weight=1.5,
-        max_alpha=0.20,
-        blend_steps=5,
-        spike_scales=(1.0, 1.05, 1.10, 1.15, 1.20),
+        max_alpha=0.30,
+        blend_steps=8,
+        spike_scales=(0.85, 0.90, 1.0, 1.10, 1.20, 1.35, 1.50),
         loss_weight=0.10,
     )
     valid_covariance_mask &= np.isfinite(sigma_marginal) & (sigma_marginal > 0)

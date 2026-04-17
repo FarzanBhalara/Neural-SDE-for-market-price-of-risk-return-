@@ -162,7 +162,10 @@ def _prepare_sigma_data(panel, config, train_date_mask=None, val_date_mask=None)
         feature_mean=config.get("feature_mean"),
         feature_std=config.get("feature_std"),
     )
-    sigma_target = np.asarray(panel["sigma_target_20d"], dtype=np.float32)
+    sigma_target_key = str(config.get("sigma_target_key", "sigma_target_20d"))
+    nll_target_key = str(config.get("nll_target_key", sigma_target_key))
+    sigma_target = np.asarray(panel[sigma_target_key], dtype=np.float32)
+    nll_target = np.asarray(panel[nll_target_key], dtype=np.float32)
     target_var = np.square(np.clip(sigma_target, 0.0, None))
     train_var = target_var[train_mask]
     ref_var = np.nanmedian(train_var[np.isfinite(train_var)]) if int(train_mask.sum()) > 0 else 1.0
@@ -187,6 +190,8 @@ def _prepare_sigma_data(panel, config, train_date_mask=None, val_date_mask=None)
         "baseline_sigma": baseline_sigma,
         "baseline_log_var": baseline_log_var,
         "loss_weight_panel": loss_weight_panel,
+        "sigma_target": sigma_target,
+        "nll_target": nll_target,
     }
 
 
@@ -208,7 +213,14 @@ def _compute_sigma_metrics(
         flat_log_var = raw_output
         delta_log_var = raw_output
     sigma_panel = torch.exp(0.5 * flat_log_var)
-    mask = mask_tensor
+    mask = (
+        mask_tensor
+        & torch.isfinite(next_return_tensor)
+        & torch.isfinite(sigma_target_tensor)
+        & torch.isfinite(sigma_panel)
+        & (sigma_panel > 0)
+        & (sigma_target_tensor > 0)
+    )
     weights = loss_weight_tensor[mask] if loss_weight_tensor is not None else None
 
     nll = _weighted_mean(
@@ -244,7 +256,7 @@ def train_sigma_model(panel, config, train_date_mask=None, val_date_mask=None, d
 
     feature_tensor = torch.tensor(prepared["scaled_features"], dtype=torch.float32, device=device)
     next_return_tensor = torch.tensor(panel["next_excess_return"], dtype=torch.float32, device=device)
-    sigma_target_tensor = torch.tensor(panel["sigma_target_20d"], dtype=torch.float32, device=device)
+    sigma_target_tensor = torch.tensor(prepared["sigma_target"], dtype=torch.float32, device=device)
     train_mask_tensor = torch.tensor(prepared["train_mask"], dtype=torch.bool, device=device)
     val_mask_tensor = torch.tensor(prepared["val_mask"], dtype=torch.bool, device=device)
     baseline_log_var_tensor = None
